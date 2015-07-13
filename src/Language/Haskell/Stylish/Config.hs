@@ -165,10 +165,10 @@ parseImports :: Config -> A.Object -> A.Parser Step
 parseImports config o = Imports.step
     <$> pure (configColumns config)
     <*> (Imports.Align
-        <$> (o A..:? "align" >>= parseEnum aligns Imports.Global)
+        <$> (o A..:? "align" >>= parseEnum aligns Imports.None)
         <*> (o A..:? "list_align" >>= parseEnum listAligns Imports.AfterAlias)
         <*> (o A..:? "long_list_align"
-            >>= parseEnum longListAligns Imports.Inline)
+            >>= parseEnum longListAligns Imports.Multiline)
         <*> (maybe 4 (max 1) <$> o A..:? "list_padding"))
             -- ^ Padding have to be at least 1. Default is 4.
   where

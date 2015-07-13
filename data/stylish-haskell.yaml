@@ -31,7 +31,7 @@ steps:
       # - none: Do not perform any alignment.
       #
       # Default: global.
-      align: global
+      align: none
 
       # Folowing options affect only import list alignment.
       #
@@ -74,7 +74,7 @@ steps:
       #   >     )
       #
       # Default: inline
-      long_list_align: inline
+      long_list_align: multiline
 
       # List padding determines indentation of import list on lines after import.
       # This option affects 'list_align' and 'long_list_align'.
