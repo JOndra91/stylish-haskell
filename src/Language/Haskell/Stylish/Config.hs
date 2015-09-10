@@ -169,8 +169,9 @@ parseImports config o = Imports.step
         <*> (o A..:? "list_align" >>= parseEnum listAligns Imports.AfterAlias)
         <*> (o A..:? "long_list_align"
             >>= parseEnum longListAligns Imports.Multiline)
-        <*> (maybe 4 (max 1) <$> o A..:? "list_padding"))
+        <*> (maybe 4 (max 1) <$> o A..:? "list_padding")
             -- ^ Padding have to be at least 1. Default is 4.
+        <*> o A..:? "separate_lists" A..!= True)
   where
     aligns =
         [ ("global", Imports.Global)
@@ -197,6 +198,7 @@ parseLanguagePragmas :: Config -> A.Object -> A.Parser Step
 parseLanguagePragmas config o = LanguagePragmas.step
     <$> pure (configColumns config)
     <*> (o A..:? "style" >>= parseEnum styles LanguagePragmas.Vertical)
+    <*> o A..:? "align" A..!= True
     <*> o A..:? "remove_redundant" A..!= True
   where
     styles =
