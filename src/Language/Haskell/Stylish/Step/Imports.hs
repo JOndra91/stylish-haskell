@@ -10,8 +10,10 @@ module Language.Haskell.Stylish.Step.Imports
 
 
 --------------------------------------------------------------------------------
+
 import           Control.Arrow                   ((&&&))
-import           Data.Char                       (isAlpha, toLower)
+import           Data.Char                       (toLower)
+import           Data.Functor                    ((<$>))
 import           Data.List                       (intercalate, sortBy)
 import           Data.Maybe                      (isJust, maybeToList)
 import           Data.Ord                        (comparing)
@@ -23,7 +25,6 @@ import           Language.Haskell.Stylish.Block
 import           Language.Haskell.Stylish.Editor
 import           Language.Haskell.Stylish.Step
 import           Language.Haskell.Stylish.Util
-
 
 --------------------------------------------------------------------------------
 data Align = Align
@@ -82,23 +83,31 @@ compareImports = comparing (map toLower . importName &&& H.importQualified)
 compareImportSpecs :: H.ImportSpec l -> H.ImportSpec l -> Ordering
 compareImportSpecs = comparing key
   where
-    key :: H.ImportSpec l -> (Int, Int, String)
-    key (H.IVar _ _ x)       = let n = nameToString x in (1, operator n, n)
-    key (H.IAbs _ x)         = (0, 0, nameToString x)
-    key (H.IThingAll _ x)    = (0, 0, nameToString x)
-    key (H.IThingWith _ x _) = (0, 0, nameToString x)
-
-    operator []      = 0  -- But this should not happen
-    operator (x : _) = if isAlpha x then 0 else 1
+    key :: H.ImportSpec l -> (Int, Bool, String)
+    key (H.IVar _ _ x)       = (1, isOperator x, nameToString x)
+    key (H.IAbs _ x)         = (0, False, nameToString x)
+    key (H.IThingAll _ x)    = (0, False, nameToString x)
+    key (H.IThingWith _ x _) = (0, False, nameToString x)
 
 
 --------------------------------------------------------------------------------
 -- | Sort the input spec list inside an 'H.ImportDecl'
 sortImportSpecs :: H.ImportDecl l -> H.ImportDecl l
-sortImportSpecs imp = imp {H.importSpecs = fmap sort $ H.importSpecs imp}
+sortImportSpecs imp = imp {H.importSpecs = sort' <$> H.importSpecs imp}
   where
-    sort (H.ImportSpecList l h specs) = H.ImportSpecList l h $
+    sort' (H.ImportSpecList l h specs) = H.ImportSpecList l h $
         sortBy compareImportSpecs specs
+
+
+--------------------------------------------------------------------------------
+-- | Order of imports in sublist is:
+-- Constructors, accessors/methods, operators.
+compareImportSubSpecs :: H.CName l -> H.CName l -> Ordering
+compareImportSubSpecs = comparing key
+  where
+    key :: H.CName l -> (Int, Bool, String)
+    key (H.ConName _ x) = (0, False,        nameToString x)
+    key (H.VarName _ x) = (1, isOperator x, nameToString x)
 
 
 --------------------------------------------------------------------------------
@@ -111,16 +120,23 @@ sortImportSpecs imp = imp {H.importSpecs = fmap sort $ H.importSpecs imp}
 -- > import Foo (Bar (..))
 --
 -- instead.
-prettyImportSpec :: H.ImportSpec l -> String
-prettyImportSpec (H.IThingAll  _ n)     = H.prettyPrint n ++ " (..)"
-prettyImportSpec (H.IThingWith _ n cns) = H.prettyPrint n ++ " (" ++
-    intercalate ", " (map H.prettyPrint cns) ++ ")"
-prettyImportSpec x                      = H.prettyPrint x
+prettyImportSpec :: (Ord l) => Bool -> H.ImportSpec l -> String
+prettyImportSpec separate = prettyImportSpec'
+  where
+    prettyImportSpec' (H.IThingAll  _ n)     = H.prettyPrint n ++ sep "(..)"
+    prettyImportSpec' (H.IThingWith _ n cns) = H.prettyPrint n
+        ++ sep "("
+        ++ intercalate ", "
+          (map H.prettyPrint $ sortBy compareImportSubSpecs cns)
+        ++ ")"
+    prettyImportSpec' x                      = H.prettyPrint x
+
+    sep = if separate then (' ' :) else id
 
 
 --------------------------------------------------------------------------------
-prettyImport :: Int -> Align -> Bool -> Bool -> Int -> H.ImportDecl l
-             -> [String]
+prettyImport :: (Ord l, Show l) =>
+    Int -> Align -> Bool -> Bool -> Int -> H.ImportDecl l -> [String]
 prettyImport columns Align{..} padQualified padName longest imp =
     case longListAlign of
         Inline -> inlineWrap
@@ -147,16 +163,16 @@ prettyImport columns Align{..} padQualified padName longest imp =
         AfterAlias -> withTail (' ' :)
             . wrap columns paddedBase (afterAliasBaseLength + 1)
 
-    inlineWithBreakWrap = paddedNoSpecBase : (wrapRest columns listPadding
-        $ mapSpecs
+    inlineWithBreakWrap = paddedNoSpecBase : wrapRest columns listPadding
+        ( mapSpecs
         $ withInit (++ ",")
         . withHead ("(" ++)
         . withLast (++ ")"))
 
     -- 'wrapRest 0' ensures that every item of spec list is on new line.
-    multilineWrap = paddedNoSpecBase : (wrapRest 0 listPadding
-        $ (mapSpecs
-          $ withHead ("( " ++)
+    multilineWrap = paddedNoSpecBase : wrapRest 0 listPadding
+        ( mapSpecs
+          ( withHead ("( " ++)
           . withTail (", " ++))
         ++ [")"])
 
@@ -175,7 +191,7 @@ prettyImport columns Align{..} padQualified padName longest imp =
     base' baseName importAs hasHiding' = unwords $ concat $ filter (not . null)
         [ ["import"]
         , qualified
-        , (fmap show $ maybeToList $ H.importPkg imp)
+        , show <$> maybeToList (H.importPkg imp)
         , [baseName]
         , importAs
         , hasHiding'
@@ -183,7 +199,7 @@ prettyImport columns Align{..} padQualified padName longest imp =
 
     base baseName = base' baseName
         ["as " ++ as | H.ModuleName _ as <- maybeToList $ H.importAs imp]
-        (if hasHiding then (["hiding"]) else [])
+        ["hiding" | hasHiding]
 
     inlineBaseLength = length $ base' (padImport $ importName imp) [] []
 
@@ -204,11 +220,7 @@ prettyImport columns Align{..} padQualified padName longest imp =
     mapSpecs f = case importSpecs of
         Nothing -> []     -- Import everything
         Just [] -> ["()"] -- Instance only imports
-        Just is -> f $ map format is
-      where
-        format
-          | separateLists = prettyImportSpec
-          | otherwise = H.prettyPrint
+        Just is -> f $ map (prettyImportSpec separateLists) is
 
 
 --------------------------------------------------------------------------------
@@ -241,11 +253,12 @@ step columns = makeStep "Imports" . step' columns
 
 --------------------------------------------------------------------------------
 step' :: Int -> Align -> Lines -> Module -> Lines
-step' columns align ls (module', _) = flip applyChanges ls
+step' columns align ls (module', _) = applyChanges
     [ change block $ const $
         prettyImportGroup columns align fileAlign longest importGroup
     | (block, importGroup) <- groups
     ]
+    ls
   where
     imps    = map sortImportSpecs $ imports $ fmap linesFromSrcSpan module'
     longest = longestImport imps
