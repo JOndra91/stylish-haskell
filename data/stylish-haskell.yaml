@@ -53,7 +53,7 @@ steps:
       #   > import qualified Data.List      as List
       #   >     (concat, foldl, foldr, head, init, last, length)
       #
-      # Default: after alias
+      # Default: after_alias
       list_align: after_alias
 
       # Long list align style takes effect when import is too long. This is
@@ -77,7 +77,7 @@ steps:
       #   >     )
       #
       # Default: multiline
-      long_list_align: new line-multiline
+      long_list_align: new_line_multiline
 
       # List padding determines indentation of import list on lines after import.
       # This option affects 'list_align' and 'long_list_align'.
